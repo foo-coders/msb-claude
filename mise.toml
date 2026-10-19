@@ -40,3 +40,16 @@ run = "zizmor --persona pedantic .github"
 
 [tasks."lint:github-action"]
 depends = [ "lint:actionlint", "lint:zizmor" ]
+
+[tasks."image:build"]
+description = "Build the ubuntu-claude Docker image"
+run = "docker build -t ubuntu-claude ubuntu-claude/"
+
+[tasks."image:scan"]
+description = "Scan the ubuntu-claude image for vulnerabilities with trivy, report CRITICAL and HIGH, exit 1 on CRITICAL"
+depends = ["image:build"]
+run = """
+trivy image ubuntu-claude --format json -o trivy-results.json
+trivy convert --format table --severity CRITICAL,HIGH -q trivy-results.json
+trivy convert --severity CRITICAL --exit-code 1 -q trivy-results.json
+"""
