@@ -79,3 +79,33 @@ RUN sudo apt-get update ...
 ```
 
 Trivy findings that aren't tied to a line (e.g. DS-0026, missing `HEALTHCHECK`) can't be ignored inline; address them in the Dockerfile itself (e.g. `HEALTHCHECK NONE` with a comment saying why).
+
+## Scanning the image for vulnerabilities
+
+This is separate from `lint:docker` above: `trivy config` checks the Dockerfile's source text for misconfigurations, while this scans the actual _built_ image for known CVEs in the OS packages it ends up with.
+
+Run it locally with:
+
+```bash
+mise run image:scan
+```
+
+This builds the `ubuntu-claude` image, runs a single `trivy image` scan (all severities, saved as `trivy-results.json`), then reads that same file twice without rescanning:
+
+- a CRITICAL+HIGH table, printed for visibility only. HIGH never fails the run: this image is a dev sandbox, not a minimal production image, and the unpinned `ubuntu` base drifts with new CVEs on its own schedule — failing on HIGH would turn CI red independently of any change here.
+- a CRITICAL-only check (`trivy convert --exit-code 1`) — the only thing that can fail `image:scan`. CRITICAL still gates: worth a human look before merging.
+
+In CI (`.github/workflows/scan-image.yml`), this runs on pull requests only — the image is rebuilt from scratch on every run and never pushed to a registry, so there's nothing persisted worth scanning on a schedule or after merge; the only thing worth catching is a PR introducing a new CRITICAL. The full `trivy-results.json` is uploaded as a build artifact on every run, including on failure, so CRITICAL/HIGH findings can be reviewed beyond the table in the log.
+
+Publishing the image to a registry (and scanning what's actually distributed, on a schedule) is left for a future change.
+
+### Ignoring a CVE
+
+Create `.trivyignore` only when a specific CRITICAL finding needs suppressing (e.g. no fix available upstream yet), with a mandatory expiration date so it comes back for review instead of being silently suppressed forever:
+
+```
+# CVE-XXXX-YYYYY exp:2026-12-31 — reason this is accepted for now
+CVE-XXXX-YYYYY
+```
+
+Trivy stops honoring the entry once `exp` passes.

@@ -1,0 +1,37 @@
+name: Scan image for vulnerabilities
+
+on:
+  pull_request:
+    paths:
+      - "ubuntu-claude/**"
+      - "mise.toml"
+      - "mise.lock"
+      - ".trivyignore"
+      - ".github/workflows/scan-image.yml"
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  trivy-image-scan:
+    name: Scan image with trivy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # required for checkout
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+      - name: Scan image
+        run: mise run image:scan
+      - name: Upload full scan results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: trivy-results
+          path: trivy-results.json
+          retention-days: 90
