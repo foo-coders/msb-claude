@@ -95,9 +95,10 @@ This builds the `ubuntu-claude` image, runs a single `trivy image` scan (all sev
 - a CRITICAL+HIGH table, printed for visibility only. HIGH never fails the run: this image is a dev sandbox, not a minimal production image, and the unpinned `ubuntu` base drifts with new CVEs on its own schedule — failing on HIGH would turn CI red independently of any change here.
 - a CRITICAL-only check (`trivy convert --exit-code 1`) — the only thing that can fail `image:scan`. CRITICAL still gates: worth a human look before merging.
 
-In CI (`.github/workflows/scan-image.yml`), this runs on pull requests only — the image is rebuilt from scratch on every run and never pushed to a registry, so there's nothing persisted worth scanning on a schedule or after merge; the only thing worth catching is a PR introducing a new CRITICAL. The full `trivy-results.json` is uploaded as a build artifact on every run, including on failure, so CRITICAL/HIGH findings can be reviewed beyond the table in the log.
+In CI, this runs in two places. The full `trivy-results.json` is uploaded as a build artifact on every run, including on failure, so CRITICAL/HIGH findings can be reviewed beyond the table in the log.
 
-Publishing the image to a registry (and scanning what's actually distributed, on a schedule) is left for a future change.
+- `.github/workflows/scan-image.yml`, on pull requests: catches a PR introducing a new CRITICAL.
+- `.github/workflows/publish-image.yml`, before every push to the registry (see [Publishing the image](#publishing-the-image)): a CRITICAL blocks publishing, so the registry keeps serving the previous image until the finding is fixed or ignored.
 
 ### Ignoring a CVE
 
@@ -109,3 +110,13 @@ CVE-XXXX-YYYYY
 ```
 
 Trivy stops honoring the entry once `exp` passes.
+
+## Publishing the image
+
+`.github/workflows/publish-image.yml` publishes `ghcr.io/foo-coders/ubuntu-claude`: its triggers, tags, attestations and retention are defined, and their reasons commented, in that file.
+
+The `YYYY-MM-DD-<short sha>` tag is not strictly immutable: a second run on the same commit the same day (e.g. a manual dispatch after the weekly run) overwrites it.
+
+### Package requirements
+
+The `ubuntu-claude` package must be **public**, and grant `foo-coders/msb-claude` the **Admin** role in its Actions access (required by the `cleanup` job). GitHub creates the package private on the first push, so both are set by hand after the first run.
