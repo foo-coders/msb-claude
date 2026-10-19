@@ -18,4 +18,5 @@ jobs:
     permissions:
       pull-requests: read # required for conventional-pr-title
     steps:
-      - uses: foo-coders/github-actions/actions/conventional-pr-title@conventional-pr-title/v1 # zizmor: ignore[unpinned-uses]
+      - name: Check PR title
+        uses: foo-coders/github-actions/actions/conventional-pr-title@conventional-pr-title/v1 # zizmor: ignore[unpinned-uses]
