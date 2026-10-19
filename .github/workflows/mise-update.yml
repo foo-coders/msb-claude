@@ -19,10 +19,12 @@ jobs:
     permissions:
       contents: read # required for checkout
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: foo-coders/github-actions/actions/mise-update@mise-update/v1 # zizmor: ignore[unpinned-uses]
+      - name: Propose mise updates
+        uses: foo-coders/github-actions/actions/mise-update@mise-update/v1 # zizmor: ignore[unpinned-uses]
         with:
           client-id: ${{ secrets.MISE_UPDATE_CLIENT_ID }}
           private-key: ${{ secrets.MISE_UPDATE_PRIVATE_KEY }}
