@@ -10,7 +10,7 @@ A Docker image (`ubuntu-claude`) with [Claude Code](https://claude.com/claude-co
 ## Prerequisites
 
 - **microsandbox (`msb`)** installed and working (requires hardware virtualization — KVM on Linux, Apple Silicon on macOS). Full setup instructions: [docs.microsandbox.dev](https://docs.microsandbox.dev).
-- **Docker** installed on your host — used only to _build_ the image locally, msb doesn't need a running Docker daemon to run it.
+- **Docker** installed on your host — only to [build the image yourself](#building-the-image-locally), msb doesn't need a running Docker daemon to run it.
 - **Claude Code installed on your host machine**, with an active Claude subscription (or API access) — needed once, to generate the authentication token below.
 
 ## 1. Generate a Claude Code authentication token
@@ -27,13 +27,19 @@ This prints a `CLAUDE_CODE_OAUTH_TOKEN`. It lets Claude Code authenticate non-in
 export CLAUDE_CODE_OAUTH_TOKEN=<token>
 ```
 
-## 2. Build the image and load it into msb
+## 2. Pull the image
 
 ```bash
-docker build ubuntu-claude/ -t ubuntu-claude && docker save ubuntu-claude | msb load
+msb pull ghcr.io/foo-coders/ubuntu-claude
 ```
 
-No registry involved: the image is built locally with Docker, then piped straight into msb's local image cache via `msb load`.
+The image is public and rebuilt weekly, to pick up Ubuntu and Claude Code updates. `latest` follows the newest build; each build is also tagged `YYYY-MM-DD-<short sha>` to pin a specific one. It is published for `linux/amd64` only: on Apple Silicon, [build the image locally](#building-the-image-locally) instead.
+
+Every build carries a signed provenance attestation, verifiable with the [GitHub CLI](https://cli.github.com):
+
+```bash
+gh attestation verify oci://ghcr.io/foo-coders/ubuntu-claude:latest -R foo-coders/msb-claude
+```
 
 ## 3. Create a sandbox
 
@@ -46,7 +52,7 @@ msb create \
   --cpus 2 --max-cpus 8 \
   --memory 4G --max-memory 8G \
   --secret "CLAUDE_CODE_OAUTH_TOKEN@api.anthropic.com" \
-  ubuntu-claude
+  ghcr.io/foo-coders/ubuntu-claude
 ```
 
 - `--name ubuntu-msb` — name of the sandbox, used to find/reuse it (`msb exec`, `msb rm`, ...).
@@ -55,7 +61,7 @@ msb create \
 - `--workdir ${PWD}` — working directory inside the sandbox, aligned with the mount above.
 - `--cpus 2 --max-cpus 8` / `--memory 4G --max-memory 8G` — baseline / burst resource limits.
 - `--secret "CLAUDE_CODE_OAUTH_TOKEN@api.anthropic.com"` — reads `$CLAUDE_CODE_OAUTH_TOKEN` from your host shell (step 1) and makes it available to the sandbox, scoped to `api.anthropic.com` only. See the [secrets documentation](https://docs.microsandbox.dev/sandboxes/secrets.md) for the full trust model.
-- `ubuntu-claude` — the image built and loaded in step 2.
+- `ghcr.io/foo-coders/ubuntu-claude` — the image pulled in step 2.
 
 The sandbox boots and stays idle, ready for `msb exec`.
 
@@ -73,9 +79,19 @@ Opens a shell inside the running sandbox. From there, just run `claude` as usual
 msb rm ubuntu-msb
 ```
 
-Stops (if needed) and removes the sandbox and its state. The `ubuntu-claude` image stays cached in msb — recreate a sandbox from it anytime with step 3.
+Stops (if needed) and removes the sandbox and its state. The image stays cached in msb — recreate a sandbox from it anytime with step 3.
 
 ## Cookbook
+
+### Building the image locally
+
+To run your own changes to the image, or on a host the published image doesn't support (e.g. Apple Silicon), build it with Docker and load it straight into msb's local image cache:
+
+```bash
+docker build ubuntu-claude/ -t ubuntu-claude && docker save ubuntu-claude | msb load
+```
+
+Then use `ubuntu-claude` instead of `ghcr.io/foo-coders/ubuntu-claude` as the image of `msb create`.
 
 ### Adding skills
 
@@ -91,7 +107,7 @@ msb create \
   --cpus 2 --max-cpus 8 \
   --memory 4G --max-memory 8G \
   --secret "CLAUDE_CODE_OAUTH_TOKEN@api.anthropic.com" \
-  ubuntu-claude
+  ghcr.io/foo-coders/ubuntu-claude
 ```
 
 - `-v ${HOME}/.agents/skills:/home/ubuntu/.host/.agents/skills:ro` — mounts the host's skills directory read-only at the expected path. Adjust the source path to wherever your skills actually live; the destination must stay `/home/ubuntu/.host/.agents/skills` for the relink hook to pick it up.
@@ -123,7 +139,7 @@ msb create \
   --secret "CLAUDE_CODE_OAUTH_TOKEN@api.anthropic.com" \
   --secret "GH_OAUTH_TOKEN@api.github.com" \
   --secret "GH_OAUTH_TOKEN@github.com" \
-  ubuntu-claude
+  ghcr.io/foo-coders/ubuntu-claude
 ```
 
 - `--secret "GH_OAUTH_TOKEN@api.github.com"` / `--secret "GH_OAUTH_TOKEN@github.com"` — reads `$GH_OAUTH_TOKEN` from your host shell and makes it available to the sandbox, scoped to those two hosts only (`files/home/.config/gh/hosts.yml` references it as `$MSB_GH_OAUTH_TOKEN`, the placeholder `msb` injects for a secret bound this way — see the [secrets documentation](https://docs.microsandbox.dev/sandboxes/secrets.md)).
@@ -162,7 +178,7 @@ msb create \
   --cpus 2 --max-cpus 8 \
   --memory 4G --max-memory 8G \
   --secret "CLAUDE_CODE_OAUTH_TOKEN@api.anthropic.com" \
-  ubuntu-claude
+  ghcr.io/foo-coders/ubuntu-claude
 ```
 
 - `--mount-owned /var/lib/docker:kind=disk,size=10G` — attaches a 10G ext4 disk owned by the sandbox at Docker's data directory. Images, containers, and build cache live there and are deleted along with the sandbox by `msb rm`. Size it for the images you expect to build.
@@ -205,7 +221,7 @@ msb create \
   --cpus 2 --max-cpus 8 \
   --memory 4G --max-memory 8G \
   --secret "CLAUDE_CODE_OAUTH_TOKEN@api.anthropic.com" \
-  ubuntu-claude
+  ghcr.io/foo-coders/ubuntu-claude
 ```
 
 - `--no-net` — disables outbound network access by default (replaces `--net public`).
