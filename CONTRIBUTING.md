@@ -141,8 +141,8 @@ Put a `# shellcheck disable=SCxxxx` directive on the line directly above the off
 
 ### Conventions
 
-- The file is deliberately not executable in the repo: it is installed with `install -m 755` (see the README's [`claude-msb` helper](README.md#claude-msb-helper) section). Run it with `bash cli/claude-msb`, or install it and run `claude-msb`.
-- Mirror any flag change in both the `--help` text and the README's `claude-msb` helper section.
+- The file is deliberately not executable in the repo: it is installed with `install -m 755` (see the README's [Quick start](README.md#1-install-the-cli)). Run it with `bash cli/claude-msb`, or install it and run `claude-msb`.
+- Mirror any flag change in both the `--help` text and the README's [Usage](README.md#usage) section.
 - Keep flags sorted lexicographically (`--gh`, `-h`/`--help`, `--new`, `--no-net`, ...) in the header comment, the `Usage:` line, the `--help` body and the README table, and keep the variable initialisation, the option parsing and the "requires `--new` or `--replace`" checks in that order too (the `-h`/`--help` arm stays last in the parsing `case`, as it holds the help text).
 - Test manually: `--help` and the flag validation errors need no `msb`; creating and resuming a sandbox needs a working `msb`.
 - Parse and validate arguments before touching the environment or `msb`, so `--help` and usage errors work on any machine.
