@@ -81,6 +81,29 @@ msb rm ubuntu-msb
 
 Stops (if needed) and removes the sandbox and its state. The image stays cached in msb — recreate a sandbox from it anytime with step 3.
 
+## `claude-msb` helper
+
+`cli/claude-msb` is a bash script wrapping steps 3 and 4: it manages one sandbox per directory, named `<current-dir>-<path-hash>-msb` (the hash — first 8 hex chars of the sha256 of the current directory path (`$PWD`, symlinks not resolved) — keeps `~/a/foo` and `~/b/foo` apart; characters msb doesn't accept in a sandbox name are replaced by `-`, leading ones dropped, and the directory name is cut to fit). It mounts the current directory, the host skills directory if `~/.agents/skills` exists, otherwise it warns and skips it (see [Adding skills](#adding-skills)) and a Docker disk (see [Docker](#docker)), and injects `CLAUDE_CODE_OAUTH_TOKEN`.
+
+Install it on your `PATH` with `install -m 755 cli/claude-msb ~/.local/bin/claude-msb` (the file in the repo isn't executable; re-run the command to update it). It needs `msb`, and reads secrets from `~/.microsandbox/.env` (e.g. `CLAUDE_CODE_OAUTH_TOKEN=<token>`, plus `GH_OAUTH_TOKEN` for `--gh`).
+
+```bash
+cd ~/projects/foo
+claude-msb --new      # create the sandbox for this directory and enter it
+claude-msb            # later: resume it
+claude-msb --replace  # recreate it from scratch
+```
+
+| Flag | Effect |
+| --- | --- |
+| `--gh` | Also inject `GH_OAUTH_TOKEN` for `github.com` and `api.github.com`. Needs `--new` or `--replace`. |
+| `-h`, `--help` | Show usage. |
+| `--new` | Create the sandbox instead of resuming it. Fails if it already exists. |
+| `--no-net` | Restrict outbound network to `api.anthropic.com:443` (plus `github.com` and `api.github.com` with `--gh`), see [Network isolation](#network-isolation). Needs `--new` or `--replace`. |
+| `--pull` | Pull the latest image first (default: only if missing). Needs `--new` or `--replace`. |
+| `--replace` | Recreate the sandbox, whether or not it exists (implies creation). |
+| `--terminal [NAME]` | Open the session in a detached terminal window (`foot` or `ptyxis`, default `foot`). |
+
 ## Cookbook
 
 ### Building the image locally
