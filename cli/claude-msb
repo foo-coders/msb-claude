@@ -1,0 +1,254 @@
+#!/usr/bin/env bash
+# claude-msb [--gh] [--new] [--no-net] [--pull] [--replace] [--terminal [NAME]]
+#
+# Manage a per-directory msb sandbox named "<current-dir>-<path-hash>-msb",
+# where <path-hash> is the first 8 hex chars of sha256($PWD, symlinks not resolved).
+#
+# Once installed (the file is not executable in the repo, see CONTRIBUTING.md),
+# being a real executable (rather than a shell function) means it can be invoked
+# by things that don't source your shell rc files: `foot -e`, .desktop files,
+# compositor keybindings, systemd units, other scripts.
+
+set -uo pipefail
+
+die() {
+    echo "claude-msb: $*" >&2
+    exit 1
+}
+
+gh=0 new=0 no_net=0 pull=0 replace=0 terminal=""
+
+while [ $# -gt 0 ]; do
+    arg=$1
+    shift
+    case "$arg" in
+        --gh) gh=1 ;;
+        --new) new=1 ;;
+        --no-net) no_net=1 ;;
+        --pull) pull=1 ;;
+        --replace) replace=1 ;;
+        # The value is optional: the next argument is taken as NAME unless it
+        # is a flag. This is unambiguous since there are no positional arguments.
+        --terminal)
+            if [ $# -gt 0 ] && [ "${1#-}" = "$1" ]; then
+                terminal=$1
+                shift
+            else
+                terminal=foot
+            fi
+            ;;
+        --terminal=)
+            die "--terminal= requires a value (foot or ptyxis)"
+            ;;
+        --terminal=*) terminal="${arg#--terminal=}" ;;
+        -h|--help)
+            cat <<'EOF'
+Usage: claude-msb [--gh] [--new] [--no-net] [--pull] [--replace] [--terminal [NAME]]
+
+Manage a per-directory msb sandbox named "<current-dir>-<path-hash>-msb",
+where <path-hash> is the first 8 hex chars of sha256($PWD, symlinks not resolved).
+Without --new, resumes (execs into) the existing sandbox.
+With --new or --replace, creates the sandbox then execs into it.
+
+  --gh        add GitHub secrets (GH_OAUTH_TOKEN for api.github.com and github.com) — requires --new or --replace
+  -h, --help  show this help and exit
+  --new       create the sandbox instead of resuming
+  --no-net    restrict outbound network to api.anthropic.com:443 (plus github.com and
+              api.github.com:443 with --gh) instead of full access — requires --new or --replace
+  --pull      pull the latest image before creating (default: only if missing) — requires --new or --replace
+  --replace   recreate an existing sandbox (implies creation, --new not required)
+  --terminal [NAME], --terminal=NAME
+              open the session in a detached terminal window instead of the
+              current one; NAME is foot or ptyxis (default: foot)
+EOF
+            exit 0
+            ;;
+        *)
+            die "unknown flag: $arg"
+            ;;
+    esac
+done
+
+create=0
+if [ "$new" -eq 1 ] || [ "$replace" -eq 1 ]; then
+    create=1
+fi
+
+if [ "$gh" -eq 1 ] && [ "$create" -eq 0 ]; then
+    die "--gh requires --new or --replace"
+fi
+
+if [ "$no_net" -eq 1 ] && [ "$create" -eq 0 ]; then
+    die "--no-net requires --new or --replace"
+fi
+
+if [ "$pull" -eq 1 ] && [ "$create" -eq 0 ]; then
+    die "--pull requires --new or --replace"
+fi
+
+case "$terminal" in
+    ""|foot|ptyxis) ;;
+    *)
+        die "unsupported terminal: $terminal (supported: foot, ptyxis)"
+        ;;
+esac
+
+if [ -n "$terminal" ] && ! command -v "$terminal" >/dev/null; then
+    die "--terminal=$terminal requested but $terminal is not installed"
+fi
+
+# Environment and msb checks come after argument parsing so that --help and
+# usage errors work even when msb is not set up.
+
+# Secrets passed with --secret are read from the environment, so load them
+# from ~/.microsandbox/.env explicitly.
+if [ -f "$HOME/.microsandbox/.env" ]; then
+    set -a
+    # SC1091: the file lives outside the repo and may not exist.
+    # shellcheck disable=SC1091
+    source "$HOME/.microsandbox/.env"
+    set +a
+else
+    echo "claude-msb: ~/.microsandbox/.env not found, running without environment variables" >&2
+fi
+
+msb_bin=$(command -v msb) || {
+    die "msb not found in PATH"
+}
+
+# The path hash keeps directories with the same name (~/a/foo, ~/b/foo) apart.
+path_hash=$(printf %s "$PWD" | sha256sum | cut -c1-8)
+# msb only accepts sandbox names of at most 128 bytes made of ASCII letters,
+# digits, '.', '-' and '_', starting with a letter or digit. The directory name
+# is made to fit (the hash keeps names unique even if two sanitize identically):
+# 128 minus "-<hash>-msb" leaves 115 bytes.
+dir_name=$(
+    printf %s "${PWD##*/}" |
+        LC_ALL=C sed -e 's/[^A-Za-z0-9._-]/-/g' -e 's/^[^A-Za-z0-9]*//' |
+        LC_ALL=C cut -c1-115
+)
+msb_name="${dir_name:-sandbox}-${path_hash}-msb"
+
+# Enter the sandbox, either in this terminal or in a detached terminal window.
+# In the window case it is kept open on failure, otherwise an error from
+# `msb exec` (e.g. "no such sandbox") would flash by as the window closes.
+enter_sandbox() {
+    if [ -z "$terminal" ]; then
+        "$msb_bin" exec "$msb_name"
+        return $?
+    fi
+
+    # ptyxis is single-instance: without --standalone the window would be opened
+    # by an already running ptyxis, which does not inherit this environment.
+    local term_cmd
+    case "$terminal" in
+        foot) term_cmd=(foot) ;;
+        ptyxis) term_cmd=(ptyxis --standalone --new-window) ;;
+    esac
+
+    # SC2016: $1 and $2 are meant to expand in the inner bash, not here.
+    # shellcheck disable=SC2016
+    setsid -f "${term_cmd[@]}" -- bash -c \
+        '"$1" exec "$2" || { echo; echo "claude-msb: exec failed — press enter to close"; read -r; }' \
+        _ "$msb_bin" "$msb_name" \
+        </dev/null >/dev/null 2>&1
+}
+
+# Check existence up front, so that a mismatch is reported here rather than
+# after a slow image pull, or in a terminal window that opens only to show the
+# error. --replace works either way, so it skips the check.
+if [ "$replace" -eq 0 ]; then
+    sandboxes=$("$msb_bin" ls -q) || {
+        die "could not list sandboxes"
+    }
+    exists=0
+    if grep -qxF -- "$msb_name" <<<"$sandboxes"; then
+        exists=1
+    fi
+
+    if [ "$create" -eq 0 ] && [ "$exists" -eq 0 ]; then
+        die "sandbox not found: $msb_name (create it with --new)"
+    fi
+    if [ "$create" -eq 1 ] && [ "$exists" -eq 1 ]; then
+        die "sandbox already exists: $msb_name (resume it without --new, or recreate it with --replace)"
+    fi
+fi
+
+if [ "$create" -eq 0 ]; then
+    enter_sandbox
+    exit $?
+fi
+
+# The current directory is mounted at the same path in the sandbox, and msb
+# rejects guest mount paths containing ':', ';' or ',' (they are its -v syntax
+# separators, with no escaping).
+case "$PWD" in
+    *[:\;,]*)
+        die "cannot mount a path containing ':', ';' or ',': $PWD"
+        ;;
+esac
+
+# --secret reads its value from the environment: without it the sandbox would
+# be created with no credentials, and the problem would only show up inside it.
+required_env=(CLAUDE_CODE_OAUTH_TOKEN)
+if [ "$gh" -eq 1 ]; then
+    required_env+=(GH_OAUTH_TOKEN)
+fi
+for var in "${required_env[@]}"; do
+    if [ -z "${!var:-}" ]; then
+        die "$var is not set (export it, or add it to ~/.microsandbox/.env)"
+    fi
+done
+
+# SC2054: the comma in --mount-owned's value is msb syntax, not an element separator.
+# shellcheck disable=SC2054
+msb_args=(
+    create ghcr.io/foo-coders/ubuntu-claude
+    --name "$msb_name"
+    -v "${PWD}:${PWD}"
+    --workdir "${PWD}"
+    --cpus 2 --max-cpus 8
+    --memory 4G --max-memory 8G
+    --secret "CLAUDE_CODE_OAUTH_TOKEN@api.anthropic.com"
+    --mount-owned /var/lib/docker:kind=disk,size=10G
+)
+
+# Volumes can't be added after creation, so a missing skills directory is
+# reported now rather than discovered later as skills that never show up.
+skills_dir="${HOME}/.agents/skills"
+if [ -d "$skills_dir" ]; then
+    msb_args+=(-v "${skills_dir}:/home/ubuntu/.host/.agents/skills:ro")
+else
+    echo "claude-msb: $skills_dir not found, creating the sandbox without host skills" >&2
+fi
+
+# --no-net and --net are mutually exclusive in msb, hence one or the other.
+# A secret is only ever sent to its own host, but that host still has to be
+# reachable, so each one gets an allow rule.
+if [ "$no_net" -eq 1 ]; then
+    msb_args+=(--no-net --net-rule "allow@api.anthropic.com:tcp:443")
+    if [ "$gh" -eq 1 ]; then
+        msb_args+=(--net-rule "allow@api.github.com:tcp:443" --net-rule "allow@github.com:tcp:443")
+    fi
+else
+    msb_args+=(--net public)
+fi
+
+if [ "$gh" -eq 1 ]; then
+    msb_args+=(--secret "GH_OAUTH_TOKEN@api.github.com" --secret "GH_OAUTH_TOKEN@github.com")
+fi
+
+if [ "$replace" -eq 1 ]; then
+    msb_args+=(--replace)
+fi
+
+if [ "$pull" -eq 1 ]; then
+    msb_args+=(--pull always)
+fi
+
+# Creation stays in the current terminal so its output and errors remain visible.
+"$msb_bin" "${msb_args[@]}" || exit $?
+echo "sandbox created: $msb_name"
+
+enter_sandbox
+exit $?

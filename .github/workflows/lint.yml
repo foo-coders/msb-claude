@@ -33,3 +33,5 @@ jobs:
         run: mise run lint:github-action
       - name: Lint Dockerfile
         run: mise run lint:docker
+      - name: Lint shell scripts
+        run: mise run lint:shell

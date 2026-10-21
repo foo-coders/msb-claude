@@ -8,7 +8,7 @@ Every linter and formatter below is pinned via this repo's `mise.toml`/`mise.loc
 mise run lint
 ```
 
-This runs `lint:format`, `lint:github-action`, and `lint:docker`: the same tasks CI runs, as separate steps, on every pull request and every push to `main` (`.github/workflows/lint.yml`). A clean local run means a clean CI run.
+This runs `lint:format`, `lint:github-action`, `lint:docker`, and `lint:shell`: the same tasks CI runs, as separate steps, on every pull request and every push to `main` (`.github/workflows/lint.yml`). A clean local run means a clean CI run.
 
 ## Formatting
 
@@ -36,7 +36,9 @@ Put an inline `# zizmor: ignore[RULE]` comment on the offending line. This is us
 - uses: foo-coders/github-actions/actions/mise-update@mise-update/v1 # zizmor: ignore[unpinned-uses]
 ```
 
-## Linting Dockerfiles
+## The `ubuntu-claude` image
+
+### Linting Dockerfiles
 
 Dockerfiles are checked by two tools:
 
@@ -55,7 +57,7 @@ This checks the Dockerfiles listed explicitly in the `lint:docker:hadolint` and 
 
 Adding a new Dockerfile to the repo? Add it to the `run` command of both the `lint:docker:hadolint` and `lint:docker:trivy` tasks in `mise.toml` — it isn't picked up automatically.
 
-### Ignoring a rule
+#### Ignoring a rule
 
 There's no `.hadolint.yaml`, `trivy.yaml`, or `.trivyignore` for this lint — rules are ignored per instruction, with an inline pragma directly above the instruction, immediately preceded by a comment explaining why:
 
@@ -80,7 +82,7 @@ RUN sudo apt-get update ...
 
 Trivy findings that aren't tied to a line (e.g. DS-0026, missing `HEALTHCHECK`) can't be ignored inline; address them in the Dockerfile itself (e.g. `HEALTHCHECK NONE` with a comment saying why).
 
-## Scanning the image for vulnerabilities
+### Scanning the image for vulnerabilities
 
 This is separate from `lint:docker` above: `trivy config` checks the Dockerfile's source text for misconfigurations, while this scans the actual _built_ image for known CVEs in the OS packages it ends up with.
 
@@ -100,7 +102,7 @@ In CI, this runs in two places. The full `trivy-results.json` is uploaded as a b
 - `.github/workflows/scan-image.yml`, on pull requests: catches a PR introducing a new CRITICAL.
 - `.github/workflows/publish-image.yml`, before every push to the registry (see [Publishing the image](#publishing-the-image)): a CRITICAL blocks publishing, so the registry keeps serving the previous image until the finding is fixed or ignored.
 
-### Ignoring a CVE
+#### Ignoring a CVE
 
 Create `.trivyignore` only when a specific CRITICAL finding needs suppressing (e.g. no fix available upstream yet), with a mandatory expiration date so it comes back for review instead of being silently suppressed forever:
 
@@ -111,12 +113,36 @@ CVE-XXXX-YYYYY
 
 Trivy stops honoring the entry once `exp` passes.
 
-## Publishing the image
+### Publishing the image
 
 `.github/workflows/publish-image.yml` publishes `ghcr.io/foo-coders/ubuntu-claude`: its triggers, tags, attestations and retention are defined, and their reasons commented, in that file.
 
 The `YYYY-MM-DD-<short sha>` tag is not strictly immutable: a second run on the same commit the same day (e.g. a manual dispatch after the weekly run) overwrites it.
 
-### Package requirements
+#### Package requirements
 
 The `ubuntu-claude` package must be **public**, and grant `foo-coders/msb-claude` the **Admin** role in its Actions access (required by the `cleanup` job). GitHub creates the package private on the first push, so both are set by hand after the first run.
+
+## The `claude-msb` CLI
+
+### Linting shell scripts
+
+The `cli/claude-msb` script is checked with [shellcheck](https://www.shellcheck.net):
+
+```bash
+mise run lint:shell
+```
+
+The task lists scripts explicitly: adding a new one to the repo means adding it to the `run` command of `lint:shell` in `mise.toml`.
+
+#### Ignoring a shellcheck rule
+
+Put a `# shellcheck disable=SCxxxx` directive on the line directly above the offending command, preceded by a comment explaining why (see `cli/claude-msb` for examples). Never disable a rule for a whole file.
+
+### Conventions
+
+- The file is deliberately not executable in the repo: it is installed with `install -m 755` (see the README's [Quick start](README.md#1-install-the-cli)). Run it with `bash cli/claude-msb`, or install it and run `claude-msb`.
+- Mirror any flag change in both the `--help` text and the README's [Usage](README.md#usage) section.
+- Keep flags sorted lexicographically (`--gh`, `-h`/`--help`, `--new`, `--no-net`, ...) in the header comment, the `Usage:` line, the `--help` body and the README table, and keep the variable initialisation, the option parsing and the "requires `--new` or `--replace`" checks in that order too (the `-h`/`--help` arm stays last in the parsing `case`, as it holds the help text).
+- Test manually: `--help` and the flag validation errors need no `msb`; creating and resuming a sandbox needs a working `msb`.
+- Parse and validate arguments before touching the environment or `msb`, so `--help` and usage errors work on any machine.

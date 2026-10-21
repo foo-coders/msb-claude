@@ -16,7 +16,7 @@ description = "Format files with prettier"
 run = "prettier --write ."
 
 [tasks.lint]
-depends = [ "lint:format", "lint:docker", "lint:github-action" ]
+depends = [ "lint:format", "lint:docker", "lint:github-action", "lint:shell" ]
 
 [tasks."lint:format"]
 run = "prettier --check ."
@@ -32,6 +32,10 @@ run = "trivy config --exit-code 1 ubuntu-claude/Dockerfile"
 [tasks."lint:docker"]
 description = "Lint Dockerfiles (hadolint + trivy config)"
 depends = ["lint:docker:hadolint", "lint:docker:trivy"]
+
+[tasks."lint:shell"]
+description = "Lint shell scripts with shellcheck"
+run = "shellcheck cli/claude-msb"
 
 [tasks."lint:actionlint"]
 run = "actionlint"
