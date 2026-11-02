@@ -9,7 +9,7 @@ minimum_release_age = "7d"
 hadolint = "2.15.1"
 node = "26"
 "npm:prettier" = "3.9.10"
-trivy = "0.76.0"
+trivy = "0.76.1"
 
 [tasks.format]
 description = "Format files with prettier"
