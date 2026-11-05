@@ -70,7 +70,7 @@ COPY --chown=ubuntu:ubuntu files/home/.config/gh/hosts.yml .config/gh/
 COPY --chown=ubuntu:ubuntu files/home/.gitconfig ./
 RUN mkdir -p .claude/hooks
 COPY --chown=ubuntu:ubuntu files/home/.claude/hooks/setup-git-identity-from-gh.sh .claude/hooks/
-RUN jq '.hooks.PreToolUse += [{"matcher":"Bash","hooks":[{"type":"command","if":"Bash(git add *)","command":"bash \"$HOME/.claude/hooks/setup-git-identity-from-gh.sh\"","timeout":30},{"type":"command","if":"Bash(git commit *)","command":"bash \"$HOME/.claude/hooks/setup-git-identity-from-gh.sh\"","timeout":30}]}]' ~/.claude/settings.json > /tmp/settings.json.tmp && mv /tmp/settings.json.tmp ~/.claude/settings.json
+RUN jq '.hooks.SessionStart += [{"hooks":[{"type":"command","command":"bash \"$HOME/.claude/hooks/setup-git-identity-from-gh.sh\"","timeout":30}]}]' ~/.claude/settings.json > /tmp/settings.json.tmp && mv /tmp/settings.json.tmp ~/.claude/settings.json
 
 # setup mise
 ### SC2016: single quotes are intentional - literal shell written into ~/.bashrc for evaluation at container runtime, not at build time
