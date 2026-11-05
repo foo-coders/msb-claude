@@ -4,13 +4,15 @@ Dev tool and language runtime versions are managed with [mise](https://mise.jdx.
 
 ## Git without SSH
 
-This sandbox has no `ssh` binary, so SSH remotes (`git@github.com:...`) fail outright. `gh` is authenticated and already set as git's HTTPS credential helper, so HTTPS just works — no key or token setup needed. If `git fetch`/`pull`/`push` fails with an SSH error, add a second remote rather than rewriting `origin`:
+This sandbox has no `ssh` binary, but `~/.gitconfig` rewrites GitHub SSH URLs (`git@github.com:...`, `ssh://git@github.com/...`) to HTTPS via `url.insteadOf`, and `gh` is git's HTTPS credential helper. So `git fetch`/`pull`/`push` on an SSH `origin` just work: keep `origin` as the single remote, unchanged. `git remote get-url` shows the rewritten HTTPS URL while `.git/config` keeps the SSH one; that's expected. SSH remotes on other hosts still fail.
+
+**Auth failures** (`Invalid username or token`, `gh auth status` reporting an invalid token) usually mean the sandbox was created without its GitHub secret. With it, `msb` sets `GH_OAUTH_TOKEN` to the literal placeholder `$MSB_GH_OAUTH_TOKEN` and swaps in the real token on the wire. Check:
 
 ```
-git remote add https-origin https://github.com/<owner>/<repo>.git   # or: gh repo view --json url -q .url
-git pull https-origin <branch>
-git push https-origin <branch>
+[ "$GH_OAUTH_TOKEN" = '$MSB_GH_OAUTH_TOKEN' ] && echo provided || echo missing
 ```
+
+`missing` means the secret was never provided, and the fix is on the host: tell the user to recreate the sandbox with `claude-msb --replace --gh` (token in `~/.microsandbox/.env`), then retry.
 
 ## Docker
 
