@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# claude-msb [--gh] [--new] [--no-net] [--pull] [--replace] [--terminal [NAME]]
+# claude-msb [--gh] [--new] [--no-net] [--persist-agent] [--pull] [--replace] [--terminal [NAME]]
 #
 # Manage a per-directory msb sandbox named "<current-dir>-<path-hash>-msb",
 # where <path-hash> is the first 8 hex chars of sha256($PWD, symlinks not resolved).
@@ -30,7 +30,7 @@ secret_spec() {
     fi
 }
 
-gh=0 new=0 no_net=0 pull=0 replace=0 terminal=""
+gh=0 new=0 no_net=0 persist_agent=0 pull=0 replace=0 terminal=""
 
 while [ $# -gt 0 ]; do
     arg=$1
@@ -39,6 +39,7 @@ while [ $# -gt 0 ]; do
         --gh) gh=1 ;;
         --new) new=1 ;;
         --no-net) no_net=1 ;;
+        --persist-agent) persist_agent=1 ;;
         --pull) pull=1 ;;
         --replace) replace=1 ;;
         # The value is optional: the next argument is taken as NAME unless it
@@ -57,7 +58,7 @@ while [ $# -gt 0 ]; do
         --terminal=*) terminal="${arg#--terminal=}" ;;
         -h|--help)
             cat <<'EOF'
-Usage: claude-msb [--gh] [--new] [--no-net] [--pull] [--replace] [--terminal [NAME]]
+Usage: claude-msb [--gh] [--new] [--no-net] [--persist-agent] [--pull] [--replace] [--terminal [NAME]]
 
 Manage a per-directory msb sandbox named "<current-dir>-<path-hash>-msb",
 where <path-hash> is the first 8 hex chars of sha256($PWD, symlinks not resolved).
@@ -69,6 +70,10 @@ With --new or --replace, creates the sandbox then execs into it.
   --new       create the sandbox instead of resuming
   --no-net    restrict outbound network to api.anthropic.com:443 (plus github.com and
               api.github.com:443 with --gh) instead of full access — requires --new or --replace
+  --persist-agent
+              keep Claude sessions (transcripts, memory, edit history, tasks, background
+              jobs, prompt history) across recreation, in ~/.claude-msb/<sandbox-name>
+              — requires --new or --replace
   --pull      pull the latest image before creating (default: only if missing) — requires --new or --replace
   --replace   recreate an existing sandbox (implies creation, --new not required)
   --terminal [NAME], --terminal=NAME
@@ -94,6 +99,10 @@ fi
 
 if [ "$no_net" -eq 1 ] && [ "$create" -eq 0 ]; then
     die "--no-net requires --new or --replace"
+fi
+
+if [ "$persist_agent" -eq 1 ] && [ "$create" -eq 0 ]; then
+    die "--persist-agent requires --new or --replace"
 fi
 
 if [ "$pull" -eq 1 ] && [ "$create" -eq 0 ]; then
@@ -234,6 +243,59 @@ if [ -d "$skills_dir" ]; then
     msb_args+=(-v "${skills_dir}:/home/ubuntu/.host/.agents/skills:ro")
 else
     echo "claude-msb: $skills_dir not found, creating the sandbox without host skills" >&2
+fi
+
+# Claude Code session state lives in a few entries of ~/.claude, all created at
+# runtime. Only those are mounted, not the whole directory, which would hide the
+# config the image ships there (CLAUDE.md, settings.json, hooks/, skills/...).
+# Volumes can't be added after creation, hence a flag that only acts on creation.
+# file-history/ must stay a single mount: Claude Code hard-links into it, and
+# hard links can't cross filesystems. history.jsonl is a file, so it goes
+# through --mount-file, which exposes the host file's inode: this holds because
+# Claude Code appends to it rather than rewriting it.
+persist_dir="${HOME}/.claude-msb/${msb_name}"
+persisted_dirs=(projects file-history tasks jobs)
+persisted_file=history.jsonl
+if [ "$persist_agent" -eq 1 ]; then
+    # Same restriction as for $PWD above. msb_name is already sanitized, so
+    # only $HOME can bring in a separator.
+    case "$persist_dir" in
+        *[:\;,]*)
+            die "cannot mount a path containing ':', ';' or ',': $persist_dir"
+            ;;
+    esac
+    # The persisted state holds every prompt and everything the agent read or
+    # edited, hence owner-only modes. Each level is created on its own, as
+    # `mkdir -p -m` only applies the mode to the last one, and existing entries
+    # are left as they are.
+    for d in "${HOME}/.claude-msb" "$persist_dir"; do
+        [ -d "$d" ] || mkdir -m 700 "$d" || die "could not create $d"
+    done
+    for d in "${persisted_dirs[@]}"; do
+        [ -d "${persist_dir}/${d}" ] || mkdir -m 700 "${persist_dir}/${d}" ||
+            die "could not create ${persist_dir}/${d}"
+    done
+    # The host file must exist to be mounted. `>>` never truncates an existing one.
+    (umask 077 && : >>"${persist_dir}/${persisted_file}") ||
+        die "could not create ${persist_dir}/${persisted_file}"
+    for d in "${persisted_dirs[@]}"; do
+        msb_args+=(-v "${persist_dir}/${d}:/home/ubuntu/.claude/${d}")
+    done
+    msb_args+=(--mount-file "${persist_dir}/${persisted_file}:/home/ubuntu/.claude/${persisted_file}")
+else
+    # Empty entries, as left by a failed create, are not worth a warning.
+    has_persisted_state=0
+    for d in "${persisted_dirs[@]}"; do
+        if [ -n "$(ls -A "${persist_dir}/${d}" 2>/dev/null)" ]; then
+            has_persisted_state=1
+        fi
+    done
+    if [ -s "${persist_dir}/${persisted_file}" ]; then
+        has_persisted_state=1
+    fi
+    if [ "$has_persisted_state" -eq 1 ]; then
+        echo "claude-msb: persisted Claude sessions exist in $persist_dir, not mounted (add --persist-agent to mount them)" >&2
+    fi
 fi
 
 # --no-net and --net are mutually exclusive in msb, hence one or the other.
