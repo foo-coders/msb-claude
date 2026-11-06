@@ -1,5 +1,11 @@
 # AGENTS.md
 
+## Contributing
+
+Work is done when `mise run lint` passes: it runs the same tasks as CI.
+
+Read `CONTRIBUTING.md` before opening a PR or touching `ubuntu-claude/Dockerfile`, `.github/workflows/`, `cli/claude-msb`, or a `mise.toml` task.
+
 ## Agent skills
 
 ### Issue tracker
