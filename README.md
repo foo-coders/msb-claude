@@ -103,7 +103,7 @@ Then create the sandbox with `--gh`:
 claude-msb --new --gh
 ```
 
-The token is scoped to `github.com` and `api.github.com` (`files/home/.config/gh/hosts.yml` references it as `$MSB_GH_OAUTH_TOKEN`, the placeholder `msb` injects for a secret bound this way). Without `--gh`, `gh` inside the sandbox has no credentials: `gh auth git-credential` fails, so git operations over HTTPS and the identity-setup hook fail too.
+The token is scoped to `github.com` and `api.github.com`, and its placeholder is allowed to reach `api.anthropic.com` unchanged (`passthrough`), so that a placeholder ending up in the model's transcript doesn't get the request blocked by `msb` (`files/home/.config/gh/hosts.yml` references it as `$MSB_GH_OAUTH_TOKEN`, the placeholder `msb` injects for a secret bound this way). The real value is still never substituted for that host. Without `--gh`, `gh` inside the sandbox has no credentials: `gh auth git-credential` fails, so git operations over HTTPS and the identity-setup hook fail too.
 
 ### Network isolation
 

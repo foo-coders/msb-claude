@@ -16,6 +16,20 @@ die() {
     exit 1
 }
 
+llm_host=api.anthropic.com
+
+# secret_spec VAR HOST: print the --secret value binding $VAR to HOST, with
+# passthrough to the LLM API unless HOST is the LLM API itself.
+# Passthrough lets the unchanged placeholder reach that host.
+secret_spec() {
+    local var=$1 host=$2
+    if [ "$host" = "$llm_host" ]; then
+        echo "${var}@${host}"
+    else
+        echo "${var}:passthrough=${llm_host}@${host}"
+    fi
+}
+
 gh=0 new=0 no_net=0 pull=0 replace=0 terminal=""
 
 while [ $# -gt 0 ]; do
@@ -209,9 +223,9 @@ msb_args=(
     --workdir "${PWD}"
     --cpus 2 --max-cpus 8
     --memory 4G --max-memory 8G
-    --secret "CLAUDE_CODE_OAUTH_TOKEN@api.anthropic.com"
     --mount-owned /var/lib/docker:kind=disk,size=10G
 )
+msb_args+=(--secret "$(secret_spec CLAUDE_CODE_OAUTH_TOKEN "$llm_host")")
 
 # Volumes can't be added after creation, so a missing skills directory is
 # reported now rather than discovered later as skills that never show up.
@@ -226,7 +240,7 @@ fi
 # A secret is only ever sent to its own host, but that host still has to be
 # reachable, so each one gets an allow rule.
 if [ "$no_net" -eq 1 ]; then
-    msb_args+=(--no-net --net-rule "allow@api.anthropic.com:tcp:443")
+    msb_args+=(--no-net --net-rule "allow@${llm_host}:tcp:443")
     if [ "$gh" -eq 1 ]; then
         msb_args+=(--net-rule "allow@api.github.com:tcp:443" --net-rule "allow@github.com:tcp:443")
     fi
@@ -235,7 +249,10 @@ else
 fi
 
 if [ "$gh" -eq 1 ]; then
-    msb_args+=(--secret "GH_OAUTH_TOKEN@api.github.com" --secret "GH_OAUTH_TOKEN@github.com")
+    msb_args+=(
+        --secret "$(secret_spec GH_OAUTH_TOKEN api.github.com)"
+        --secret "$(secret_spec GH_OAUTH_TOKEN github.com)"
+    )
 fi
 
 if [ "$replace" -eq 1 ]; then
