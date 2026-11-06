@@ -10,6 +10,10 @@ mise run lint
 
 This runs `lint:format`, `lint:github-action`, `lint:docker`, and `lint:shell`: the same tasks CI runs, as separate steps, on every pull request and every push to `main` (`.github/workflows/lint.yml`). A clean local run means a clean CI run.
 
+## Pull requests
+
+PR titles follow [Conventional Commits](https://www.conventionalcommits.org) (`type(scope): summary`), checked on every PR by `.github/workflows/pr-title.yml`. PRs are squash-merged, so the title becomes the commit message on `main`: `git log --oneline main` shows the scopes in use (`cli`, `ubuntu-claude`, ...).
+
 ## Formatting
 
 Files are formatted with [prettier](https://prettier.io).
