@@ -268,7 +268,7 @@ fi
 # through --mount-file, which exposes the host file's inode: this holds because
 # Claude Code appends to it rather than rewriting it.
 persisted_dirs=(projects file-history tasks jobs)
-persisted_file=history.jsonl
+persisted_files=(history.jsonl)
 if [ "$persist_agent" -eq 1 ]; then
     # The persisted state holds every prompt and everything the agent read or
     # edited, hence owner-only modes. Each level is created on its own, as
@@ -281,13 +281,17 @@ if [ "$persist_agent" -eq 1 ]; then
         [ -d "${persist_dir}/${d}" ] || mkdir -m 700 "${persist_dir}/${d}" ||
             die "could not create ${persist_dir}/${d}"
     done
-    # The host file must exist to be mounted. `>>` never truncates an existing one.
-    (umask 077 && : >>"${persist_dir}/${persisted_file}") ||
-        die "could not create ${persist_dir}/${persisted_file}"
+    # A host file must exist to be mounted. `>>` never truncates an existing one.
+    for f in "${persisted_files[@]}"; do
+        (umask 077 && : >>"${persist_dir}/${f}") ||
+            die "could not create ${persist_dir}/${f}"
+    done
     for d in "${persisted_dirs[@]}"; do
         msb_args+=(-v "${persist_dir}/${d}:/home/ubuntu/.claude/${d}")
     done
-    msb_args+=(--mount-file "${persist_dir}/${persisted_file}:/home/ubuntu/.claude/${persisted_file}")
+    for f in "${persisted_files[@]}"; do
+        msb_args+=(--mount-file "${persist_dir}/${f}:/home/ubuntu/.claude/${f}")
+    done
 else
     # Empty entries, as left by a failed create, are not worth a warning.
     has_persisted_state=0
@@ -296,9 +300,11 @@ else
             has_persisted_state=1
         fi
     done
-    if [ -s "${persist_dir}/${persisted_file}" ]; then
-        has_persisted_state=1
-    fi
+    for f in "${persisted_files[@]}"; do
+        if [ -s "${persist_dir}/${f}" ]; then
+            has_persisted_state=1
+        fi
+    done
     if [ "$has_persisted_state" -eq 1 ]; then
         echo "claude-msb: persisted Claude sessions exist in $persist_dir, not mounted (add --persist-agent to mount them)" >&2
     fi
