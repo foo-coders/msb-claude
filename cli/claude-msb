@@ -168,7 +168,8 @@ check_mountable() {
 # queried, so that an unmountable path fails right away. The current directory
 # is mounted at the same path in the sandbox. In the persisted state path,
 # msb_name is already sanitized, so only $HOME can bring in a separator.
-persist_dir="${HOME}/.claude-msb/${msb_name}"
+claude_msb_dir="${HOME}/.claude-msb"
+persist_dir="${claude_msb_dir}/${msb_name}"
 if [ "$create" -eq 1 ]; then
     check_mountable "$PWD"
     if [ "$persist_agent" -eq 1 ]; then
@@ -180,18 +181,28 @@ fi
 # usage errors work even when msb is not set up.
 
 # Secrets passed with --secret are read from the environment, so load them
-# from ~/.microsandbox/.env explicitly.
-if [ -f "$HOME/.microsandbox/.env" ]; then
-    set -a
-    # SC1091: the file lives outside the repo and may not exist.
-    # shellcheck disable=SC1091
-    source "$HOME/.microsandbox/.env"
-    set +a
-else
-    # SC2088: the tilde is meant to be shown as is, not expanded.
-    # shellcheck disable=SC2088
-    log_warn "~/.microsandbox/.env not found, running without environment variables"
+# from ~/.claude-msb/.env explicitly. It holds tokens, hence owner-only modes;
+# it is created, with just a comment, if missing, and left as is otherwise.
+env_file="${claude_msb_dir}/.env"
+[ -d "$claude_msb_dir" ] || mkdir -m 700 "$claude_msb_dir" ||
+    die "could not create $claude_msb_dir"
+if [ ! -e "$env_file" ]; then
+    (umask 077 && echo "# claude-msb secrets, one VAR=value per line (see the README)" >"$env_file") ||
+        die "could not create $env_file"
 fi
+# An existing file keeps its mode, so access by group or others is only
+# reported. The mode is read from `ls -ld` (as in "-rw-r-----"), which POSIX
+# specifies, unlike stat's options or find's "any of these bits" -perm syntax,
+# which differ between GNU and BSD (macOS).
+env_mode=$(ls -ld "$env_file") || die "could not read the mode of $env_file"
+if [ "${env_mode:4:6}" != "------" ]; then
+    log_warn "$env_file holds secrets but group or others can access it: chmod 600 $env_file"
+fi
+set -a
+# SC1090: the path is computed above. SC1091: the file lives outside the repo.
+# shellcheck disable=SC1090,SC1091
+source "$env_file"
+set +a
 
 msb_bin=$(command -v msb) || {
     die "msb not found in PATH"
@@ -255,7 +266,7 @@ if [ "$gh" -eq 1 ]; then
 fi
 for var in "${required_env[@]}"; do
     if [ -z "${!var:-}" ]; then
-        die "$var is not set (export it, or add it to ~/.microsandbox/.env)"
+        die "$var is not set (export it, or add it to $env_file)"
     fi
 done
 
@@ -293,12 +304,10 @@ persisted_dirs=(projects file-history tasks jobs)
 persisted_files=(history.jsonl)
 if [ "$persist_agent" -eq 1 ]; then
     # The persisted state holds every prompt and everything the agent read or
-    # edited, hence owner-only modes. Each level is created on its own, as
-    # `mkdir -p -m` only applies the mode to the last one, and existing entries
-    # are left as they are.
-    for d in "${HOME}/.claude-msb" "$persist_dir"; do
-        [ -d "$d" ] || mkdir -m 700 "$d" || die "could not create $d"
-    done
+    # edited, hence owner-only modes. Its parent, ~/.claude-msb, was created
+    # along with the .env above. Existing entries are left as they are.
+    [ -d "$persist_dir" ] || mkdir -m 700 "$persist_dir" ||
+        die "could not create $persist_dir"
     for d in "${persisted_dirs[@]}"; do
         [ -d "${persist_dir}/${d}" ] || mkdir -m 700 "${persist_dir}/${d}" ||
             die "could not create ${persist_dir}/${d}"

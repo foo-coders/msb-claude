@@ -35,13 +35,15 @@ On your **host** (not inside a sandbox), with Claude Code already installed and 
 claude setup-token
 ```
 
-This prints a `CLAUDE_CODE_OAUTH_TOKEN`. It lets Claude Code authenticate non-interactively — no login flow needed inside the sandbox. Put it in `~/.microsandbox/.env`, which `claude-msb` loads, and keep that file private (never commit it):
+This prints a `CLAUDE_CODE_OAUTH_TOKEN`. It lets Claude Code authenticate non-interactively — no login flow needed inside the sandbox. Put it in `~/.claude-msb/.env`, which `claude-msb` loads (and creates, empty and owner-only, if missing), and keep that file private (never commit it):
 
 ```bash
-mkdir -p ~/.microsandbox
-echo 'CLAUDE_CODE_OAUTH_TOKEN=<token>' >> ~/.microsandbox/.env
-chmod 600 ~/.microsandbox/.env
+mkdir -p -m 700 ~/.claude-msb
+echo 'CLAUDE_CODE_OAUTH_TOKEN=<token>' >> ~/.claude-msb/.env
+chmod 600 ~/.claude-msb/.env
 ```
+
+Upgrading from a version that read `~/.microsandbox/.env`? That file is no longer read: move it with `mv ~/.microsandbox/.env ~/.claude-msb/.env`.
 
 `claude-msb` hands the token to the sandbox as an `msb` secret scoped to `api.anthropic.com` only: the process inside never sees the real value, and it is only substituted into requests to that host. See the [secrets documentation](https://docs.microsandbox.dev/sandboxes/secrets.md) for the full trust model.
 
@@ -87,16 +89,36 @@ Sandbox settings can only be set at creation (not added later with `msb modify`)
 - **Docker:** a dedicated 10G disk on `/var/lib/docker`, see [Docker](#docker).
 - **Agent sessions:** only with `--persist-agent`, Claude Code's session state mounted from `~/.claude-msb/<sandbox-name>`, so it survives `--replace`. Without it, sessions are lost along with the sandbox. See [Persisting Claude sessions](#persisting-claude-sessions).
 
+### What `claude-msb` keeps on the host
+
+Everything `claude-msb` reads or writes on the host lives in `~/.claude-msb`:
+
+```
+~/.claude-msb/                 0700
+├── .env                       0600  secrets, see below
+└── <sandbox-name>/            0700  only with --persist-agent, one per sandbox
+    ├── projects/
+    ├── file-history/
+    ├── tasks/
+    ├── jobs/
+    └── history.jsonl          0600
+```
+
+- `.env`: the secrets (`CLAUDE_CODE_OAUTH_TOKEN`, `GH_OAUTH_TOKEN`), loaded on every run. It never enters a sandbox: its values are handed to `msb` as secrets. It is created, holding just a comment, if missing. An existing one is left as is, with a warning if group or others can access it.
+- `<sandbox-name>/`: Claude Code's session state, mounted into that sandbox, see [Persisting Claude sessions](#persisting-claude-sessions).
+
+`~/.claude-msb` itself is never mounted, and missing entries are created with the modes above. Existing ones keep theirs.
+
 ## Cookbook
 
 ### GitHub
 
 The image ships [`gh`](https://cli.github.com) preconfigured to authenticate git over HTTPS (`files/home/.gitconfig` wires `credential.helper` to `gh auth git-credential` for `github.com` and `gist.github.com`, and rewrites `git@github.com:`/`ssh://git@github.com/` remotes to HTTPS via `url.insteadOf`, since the sandbox has no `ssh` binary), plus a `SessionStart` hook (`files/home/.claude/hooks/setup-git-identity-from-gh.sh`) that fills in whichever of git `user.name`/`user.email` isn't already set, from the authenticated `gh` account — any value you've already configured is left untouched. The hook never blocks: if `gh` isn't authenticated, it shows a warning and `git commit` fails with git's usual "Please tell me who you are" until the identity is set (or `gh auth login` is run and the session restarted). This lets Claude push commits, open PRs, and use `gh` commands from inside the sandbox.
 
-Add a token `gh` can use non-interactively to `~/.microsandbox/.env`, e.g. from an account already logged in via `gh auth login`:
+Add a token `gh` can use non-interactively to `~/.claude-msb/.env`, e.g. from an account already logged in via `gh auth login`:
 
 ```bash
-echo "GH_OAUTH_TOKEN=$(gh auth token)" >> ~/.microsandbox/.env
+echo "GH_OAUTH_TOKEN=$(gh auth token)" >> ~/.claude-msb/.env
 ```
 
 Then create the sandbox with `--gh`:
