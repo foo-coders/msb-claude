@@ -70,6 +70,7 @@ Each directory gets its own sandbox, named `<current-dir>-<path-hash>-msb` (the 
 | `-h`, `--help` | Show usage. |
 | `--new` | Create the sandbox instead of resuming it. Fails if it already exists. |
 | `--no-net` | Restrict outbound network to `api.anthropic.com:443` (plus `github.com` and `api.github.com` with `--gh`), see [Network isolation](#network-isolation). Needs `--new` or `--replace`. |
+| `--persist-agent` | Keep Claude sessions (transcripts, memory, edit history, tasks, background jobs, prompt history) across recreation, in `~/.claude-msb/<sandbox-name>`, see [Persisting Claude sessions](#persisting-claude-sessions). Needs `--new` or `--replace`. |
 | `--pull` | Pull the latest image first (default: only if missing). Needs `--new` or `--replace`. |
 | `--replace` | Recreate the sandbox, whether or not it exists (implies creation). |
 | `--terminal [NAME]` | Open the session in a detached terminal window (`foot` or `ptyxis`, default `foot`). |
@@ -84,6 +85,7 @@ Sandbox settings can only be set at creation (not added later with `msb modify`)
 - **Token:** `CLAUDE_CODE_OAUTH_TOKEN` as a secret for `api.anthropic.com`, and `GH_OAUTH_TOKEN` for GitHub with `--gh`. `claude-msb` stops before creating the sandbox if one of them is missing from the environment.
 - **Skills:** your host `~/.agents/skills` directory, read-only, if it exists; otherwise the sandbox is created without it, with a message. See [Skills](#skills).
 - **Docker:** a dedicated 10G disk on `/var/lib/docker`, see [Docker](#docker).
+- **Agent sessions:** only with `--persist-agent`, Claude Code's session state mounted from `~/.claude-msb/<sandbox-name>`, so it survives `--replace`. Without it, sessions are lost along with the sandbox. See [Persisting Claude sessions](#persisting-claude-sessions).
 
 ## Cookbook
 
@@ -122,6 +124,30 @@ Everything else is blocked, including package installs (`mise`, `apt`) and image
 To make [Claude Code skills](https://docs.claude.com/en/docs/claude-code/skills) from your host available inside the sandbox, keep them in `~/.agents/skills` — where [`npx skills`](https://www.npmjs.com/package/skills) installed globally puts them. `claude-msb` mounts that directory read-only at `/home/ubuntu/.host/.agents/skills`, the path expected by a `SessionStart` hook (`files/home/.claude/hooks/relink-skills.sh`) that scans it on every session start and symlinks each skill directory it finds into `~/.claude/skills` — no manual symlinking needed.
 
 The hook only manages symlinks it created itself: it leaves alone anything that's already a real file/dir or a symlink pointing elsewhere at the same name in `~/.claude/skills`, and it removes symlinks it previously created once their source skill disappears from the mount. It re-runs on every session start, so adding, removing, or updating skills on the host only requires restarting the Claude Code session inside the sandbox — not recreating it. Creating the sandbox _before_ `~/.agents/skills` exists does require `--replace`, since volumes can't be added later.
+
+### Persisting Claude sessions
+
+By default, Claude Code's sessions live inside the sandbox and are lost with it on `--replace`. `--persist-agent` keeps them on the host, so `claude --resume` picks up where you left off after a recreation:
+
+```bash
+claude-msb --replace --persist-agent
+```
+
+It mounts these entries of `/home/ubuntu/.claude`, read-write, from `~/.claude-msb/<sandbox-name>/` on the host:
+
+- `projects/`: session transcripts, read by `claude --resume`, and the agent's persistent `memory/`.
+- `file-history/`: a copy of each file at each edit by the agent, used to restore files when rewinding to an earlier message.
+- `tasks/`: the agent's task lists.
+- `jobs/`: background sessions. Whether they show up again in the background session list after a recreation is not verified yet; their transcripts are in `projects/` either way, so `claude --resume` still finds them.
+- `history.jsonl`: prompt history (up arrow), mounted as a single file with `--mount-file`.
+
+Nothing else in `~/.claude` is persisted: not the runtime state (`sessions/`, `session-env/`, `shell-snapshots/`, ...), not the caches (`plugins/`, `cache/`, ...), and not what the image ships there (`CLAUDE.md`, `settings.json`, `hooks/`, `skills/`), which a mount would hide.
+
+The missing entries are created on first use: directories as `0700`, `history.jsonl` empty as `0600`. Existing ones are left untouched. Keep it that way: these files hold every prompt, and everything the agent read or edited.
+
+Like every volume, these mounts can only be added at creation, so the flag needs `--new` or `--replace`. Turning it on for an existing sandbox takes one `--replace --persist-agent`, and the sessions from before that recreation are lost. Recreating without the flag doesn't mount anything, and warns if `~/.claude-msb/<sandbox-name>` holds persisted sessions.
+
+The sandbox name includes a hash of the project path, so moving or renaming the project directory starts a new `~/.claude-msb/<sandbox-name>`. There's no cleanup command: delete the old directory by hand.
 
 ### Docker
 
@@ -217,6 +243,8 @@ msb create \
 - `--secret "CLAUDE_CODE_OAUTH_TOKEN@api.anthropic.com"` — reads `$CLAUDE_CODE_OAUTH_TOKEN` from your host shell (export it first) and makes it available to the sandbox, scoped to `api.anthropic.com` only.
 - `--mount-owned /var/lib/docker:kind=disk,size=10G` — the Docker disk.
 - `ghcr.io/foo-coders/ubuntu-claude` — the image (or `ubuntu-claude` for a [local build](#building-the-image-locally)); `msb pull ghcr.io/foo-coders/ubuntu-claude` fetches it ahead of time.
+
+With `--persist-agent`, `claude-msb` also adds one `-v ~/.claude-msb/<sandbox-name>/<dir>:/home/ubuntu/.claude/<dir>` per persisted directory (`projects`, `file-history`, `tasks`, `jobs`), and `--mount-file ~/.claude-msb/<sandbox-name>/history.jsonl:/home/ubuntu/.claude/history.jsonl` (with absolute paths: msb doesn't expand `~`), see [Persisting Claude sessions](#persisting-claude-sessions).
 
 Then attach to the sandbox, and remove it when you're done:
 
