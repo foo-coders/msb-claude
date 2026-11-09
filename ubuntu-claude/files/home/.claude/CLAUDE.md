@@ -12,7 +12,7 @@ This sandbox has no `ssh` binary, but `~/.gitconfig` rewrites GitHub SSH URLs (`
 [ "$GH_OAUTH_TOKEN" = '$MSB_GH_OAUTH_TOKEN' ] && echo provided || echo missing
 ```
 
-`missing` means the secret was never provided, and the fix is on the host: tell the user to recreate the sandbox with `claude-msb --replace --gh` (token in `~/.microsandbox/.env`), then retry.
+`missing` means the secret was never provided, and the fix is on the host: tell the user to recreate the sandbox with `claude-msb --replace --gh` (token in `~/.claude-msb/.env`), then retry.
 
 ## Docker
 
