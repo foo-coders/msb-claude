@@ -120,6 +120,42 @@ if [ -n "$terminal" ] && ! command -v "$terminal" >/dev/null; then
     die "--terminal=$terminal requested but $terminal is not installed"
 fi
 
+# The path hash keeps directories with the same name (~/a/foo, ~/b/foo) apart.
+path_hash=$(printf %s "$PWD" | sha256sum | cut -c1-8)
+# msb only accepts sandbox names of at most 128 bytes made of ASCII letters,
+# digits, '.', '-' and '_', starting with a letter or digit. The directory name
+# is made to fit (the hash keeps names unique even if two sanitize identically):
+# 128 minus "-<hash>-msb" leaves 115 bytes.
+dir_name=$(
+    printf %s "${PWD##*/}" |
+        LC_ALL=C sed -e 's/[^A-Za-z0-9._-]/-/g' -e 's/^[^A-Za-z0-9]*//' |
+        LC_ALL=C cut -c1-115
+)
+msb_name="${dir_name:-sandbox}-${path_hash}-msb"
+
+# check_mountable PATH: die if msb can't mount PATH. msb rejects mount paths
+# containing ':', ';' or ',' (they are its -v syntax separators, with no
+# escaping).
+check_mountable() {
+    case "$1" in
+        *[:\;,]*)
+            die "cannot mount a path containing ':', ';' or ',': $1"
+            ;;
+    esac
+}
+
+# Mounted host paths are checked before the environment is loaded and msb is
+# queried, so that an unmountable path fails right away. The current directory
+# is mounted at the same path in the sandbox. In the persisted state path,
+# msb_name is already sanitized, so only $HOME can bring in a separator.
+persist_dir="${HOME}/.claude-msb/${msb_name}"
+if [ "$create" -eq 1 ]; then
+    check_mountable "$PWD"
+    if [ "$persist_agent" -eq 1 ]; then
+        check_mountable "$persist_dir"
+    fi
+fi
+
 # Environment and msb checks come after argument parsing so that --help and
 # usage errors work even when msb is not set up.
 
@@ -138,19 +174,6 @@ fi
 msb_bin=$(command -v msb) || {
     die "msb not found in PATH"
 }
-
-# The path hash keeps directories with the same name (~/a/foo, ~/b/foo) apart.
-path_hash=$(printf %s "$PWD" | sha256sum | cut -c1-8)
-# msb only accepts sandbox names of at most 128 bytes made of ASCII letters,
-# digits, '.', '-' and '_', starting with a letter or digit. The directory name
-# is made to fit (the hash keeps names unique even if two sanitize identically):
-# 128 minus "-<hash>-msb" leaves 115 bytes.
-dir_name=$(
-    printf %s "${PWD##*/}" |
-        LC_ALL=C sed -e 's/[^A-Za-z0-9._-]/-/g' -e 's/^[^A-Za-z0-9]*//' |
-        LC_ALL=C cut -c1-115
-)
-msb_name="${dir_name:-sandbox}-${path_hash}-msb"
 
 # Enter the sandbox, either in this terminal or in a detached terminal window.
 # In the window case it is kept open on failure, otherwise an error from
@@ -202,15 +225,6 @@ if [ "$create" -eq 0 ]; then
     exit $?
 fi
 
-# The current directory is mounted at the same path in the sandbox, and msb
-# rejects guest mount paths containing ':', ';' or ',' (they are its -v syntax
-# separators, with no escaping).
-case "$PWD" in
-    *[:\;,]*)
-        die "cannot mount a path containing ':', ';' or ',': $PWD"
-        ;;
-esac
-
 # --secret reads its value from the environment: without it the sandbox would
 # be created with no credentials, and the problem would only show up inside it.
 required_env=(CLAUDE_CODE_OAUTH_TOKEN)
@@ -253,17 +267,9 @@ fi
 # hard links can't cross filesystems. history.jsonl is a file, so it goes
 # through --mount-file, which exposes the host file's inode: this holds because
 # Claude Code appends to it rather than rewriting it.
-persist_dir="${HOME}/.claude-msb/${msb_name}"
 persisted_dirs=(projects file-history tasks jobs)
 persisted_file=history.jsonl
 if [ "$persist_agent" -eq 1 ]; then
-    # Same restriction as for $PWD above. msb_name is already sanitized, so
-    # only $HOME can bring in a separator.
-    case "$persist_dir" in
-        *[:\;,]*)
-            die "cannot mount a path containing ':', ';' or ',': $persist_dir"
-            ;;
-    esac
     # The persisted state holds every prompt and everything the agent read or
     # edited, hence owner-only modes. Each level is created on its own, as
     # `mkdir -p -m` only applies the mode to the last one, and existing entries
