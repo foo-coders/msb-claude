@@ -11,8 +11,28 @@
 
 set -uo pipefail
 
+# Warnings and errors are colored only when stderr is a terminal and NO_COLOR
+# (https://no-color.org) is unset, so logs and pipes get no escape codes.
+if [ -t 2 ] && [ -z "${NO_COLOR:-}" ]; then
+    color_warn=$'\e[33m' color_err=$'\e[31m' color_reset=$'\e[0m'
+else
+    color_warn="" color_err="" color_reset=""
+fi
+
+log_info() {
+    echo "$*"
+}
+
+log_warn() {
+    echo "${color_warn}claude-msb: $*${color_reset}" >&2
+}
+
+log_err() {
+    echo "${color_err}claude-msb: $*${color_reset}" >&2
+}
+
 die() {
-    echo "claude-msb: $*" >&2
+    log_err "$@"
     exit 1
 }
 
@@ -168,7 +188,9 @@ if [ -f "$HOME/.microsandbox/.env" ]; then
     source "$HOME/.microsandbox/.env"
     set +a
 else
-    echo "claude-msb: ~/.microsandbox/.env not found, running without environment variables" >&2
+    # SC2088: the tilde is meant to be shown as is, not expanded.
+    # shellcheck disable=SC2088
+    log_warn "~/.microsandbox/.env not found, running without environment variables"
 fi
 
 msb_bin=$(command -v msb) || {
@@ -256,7 +278,7 @@ skills_dir="${HOME}/.agents/skills"
 if [ -d "$skills_dir" ]; then
     msb_args+=(-v "${skills_dir}:/home/ubuntu/.host/.agents/skills:ro")
 else
-    echo "claude-msb: $skills_dir not found, creating the sandbox without host skills" >&2
+    log_warn "$skills_dir not found, creating the sandbox without host skills"
 fi
 
 # Claude Code session state lives in a few entries of ~/.claude, all created at
@@ -306,7 +328,7 @@ else
         fi
     done
     if [ "$has_persisted_state" -eq 1 ]; then
-        echo "claude-msb: persisted Claude sessions exist in $persist_dir, not mounted (add --persist-agent to mount them)" >&2
+        log_warn "persisted Claude sessions exist in $persist_dir, not mounted (add --persist-agent to mount them)"
     fi
 fi
 
@@ -339,7 +361,7 @@ fi
 
 # Creation stays in the current terminal so its output and errors remain visible.
 "$msb_bin" "${msb_args[@]}" || exit $?
-echo "sandbox created: $msb_name"
+log_info "sandbox created: $msb_name"
 
 enter_sandbox
 exit $?
