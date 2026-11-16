@@ -46,6 +46,8 @@ RUN (cat ~/.claude.json 2>/dev/null || echo '{}') | jq '.hasCompletedOnboarding 
 # setup default status line
 COPY --chown=ubuntu:ubuntu files/home/.claude/statusline-default.sh .claude/
 RUN (cat ~/.claude/settings.json 2>/dev/null || echo '{}') | jq '.statusLine = {"type": "command", "command": "if [ -f $HOME/.claude/statusline.sh ]; then bash $HOME/.claude/statusline.sh; else bash $HOME/.claude/statusline-default.sh; fi"}' > /tmp/settings.json.tmp && mv /tmp/settings.json.tmp ~/.claude/settings.json
+# opt out of telemetry and error reporting (updates stay on)
+RUN jq '.env += {"DISABLE_TELEMETRY": "1", "DISABLE_ERROR_REPORTING": "1"}' ~/.claude/settings.json > /tmp/settings.json.tmp && mv /tmp/settings.json.tmp ~/.claude/settings.json
 # setup skills relink from ~/.host/.agents/skills/
 RUN mkdir -p .claude/hooks
 COPY --chown=ubuntu:ubuntu files/home/.claude/hooks/relink-skills.sh .claude/hooks/
