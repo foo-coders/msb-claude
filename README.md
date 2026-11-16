@@ -86,7 +86,7 @@ Sandbox settings can only be set at creation (not added later with `msb modify`)
 - **Network:** full outbound access, unless `--no-net`.
 - **Token:** `CLAUDE_CODE_OAUTH_TOKEN` as a secret for `api.anthropic.com`, and `GH_OAUTH_TOKEN` for GitHub with `--gh`. `claude-msb` stops before creating the sandbox if one of them is missing from the environment.
 - **Skills:** your host `~/.agents/skills` directory, read-only, if it exists; otherwise the sandbox is created without it, with a message. See [Skills](#skills).
-- **Telemetry:** Claude Code's telemetry and error reporting are off (`DISABLE_TELEMETRY` and `DISABLE_ERROR_REPORTING` in the `env` of the image's `~/.claude/settings.json`); automatic updates stay on. `DISABLE_TELEMETRY` also stops Claude Code from fetching feature flags. To turn them back on, remove the two keys from `~/.claude/settings.json` in the sandbox.
+- **Disabled telemetry:** Claude Code's telemetry and error reporting are off (`DISABLE_TELEMETRY` and `DISABLE_ERROR_REPORTING` in the `env` of the image's `~/.claude/settings.json`); automatic updates stay on. `DISABLE_TELEMETRY` also stops Claude Code from fetching feature flags. To turn them back on, remove the two keys from `~/.claude/settings.json` in the sandbox.
 - **Docker:** a dedicated 10G disk on `/var/lib/docker`, see [Docker](#docker).
 - **Agent sessions:** only with `--persist-agent`, Claude Code's session state mounted from `~/.claude-msb/<sandbox-name>`, so it survives `--replace`. Without it, sessions are lost along with the sandbox. See [Persisting Claude sessions](#persisting-claude-sessions).
 
